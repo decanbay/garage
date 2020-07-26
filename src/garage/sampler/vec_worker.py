@@ -122,7 +122,8 @@ class VecWorker(DefaultWorker):
             self._needs_env_reset = False
 
     def _gather_rollout(self, rollout_number, last_observation):
-        assert 0 < self._path_lengths[rollout_number] <= self._max_path_length
+        assert 0 < self._path_lengths[
+            rollout_number] <= self._max_episode_length
         env_infos = self._env_infos[rollout_number]
         agent_infos = self._agent_infos[rollout_number]
         for k, v in env_infos.items():
