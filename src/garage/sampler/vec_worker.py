@@ -122,8 +122,15 @@ class VecWorker(DefaultWorker):
             self._needs_env_reset = False
 
     def _gather_rollout(self, rollout_number, last_observation):
-        assert 0 < self._path_lengths[
-            rollout_number] <= self._max_episode_length
+        assert 0 < self._path_lengths[rollout_number] <= self._max_path_length
+        env_infos = self._env_infos[rollout_number]
+        self._env_infos[rollout_number] = collections.defaultdict(list)
+        agent_infos = self._agent_infos[rollout_number]
+        self._agent_infos[rollout_number] = collections.defaultdict(list)
+        for k, v in env_infos.items():
+            env_infos[k] = np.asarray(v)
+        for k, v in agent_infos.items():
+            agent_infos[k] = np.asarray(v)
         traj = TrajectoryBatch(
             env_spec=self._envs[rollout_number].spec,
             observations=np.asarray(self._observations[rollout_number]),
