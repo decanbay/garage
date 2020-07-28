@@ -38,6 +38,7 @@ and how to implement new MDPs and new algorithms.
 
    user/implement_env
    user/implement_algo
+   user/custom_worker
 
 .. toctree::
    :maxdepth: 2
