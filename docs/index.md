@@ -31,6 +31,7 @@ and how to implement new MDPs and new algorithms.
    user/reuse_garage_policy
    user/docker
    user/ensure_your_experiments_are_reproducible
+   user/max_resource_usage
 
 .. toctree::
    :maxdepth: 2
