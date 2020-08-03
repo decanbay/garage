@@ -25,10 +25,11 @@ class TestNormalizedGym:
     def test_flatten(self):
         for _ in range(10):
             self.env.reset()
+            self.env.visualize()
             for _ in range(5):
-                self.env.render()
                 action = self.env.action_space.sample()
-                next_obs, _, done, _ = self.env.step(action)
+                ts = self.env.step(action)
+                next_obs, done = ts.observation, ts.terminal
                 assert next_obs.shape == self.env.observation_space.low.shape
                 if done:
                     break
@@ -38,7 +39,8 @@ class TestNormalizedGym:
             self.env.reset()
             for _ in range(5):
                 action = self.env.action_space.sample()
-                next_obs, _, done, _ = self.env.step(action)
+                ts = self.env.step(action)
+                next_obs, done = ts.observation, ts.terminal
                 # yapf: disable
                 assert (self.env.observation_space.flatten(next_obs).shape
                         == self.env.observation_space.flat_dim)

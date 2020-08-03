@@ -5,8 +5,6 @@ import numpy as np
 from garage.envs import PointEnv
 from garage.envs.normalized_env import NormalizedEnv
 
-from tests.helpers import step_env
-
 
 class TestNormalizedEnv:
 
@@ -17,7 +15,11 @@ class TestNormalizedEnv:
         assert round_trip
         assert round_trip._scale_reward == env._scale_reward
         assert np.array_equal(round_trip.env._goal, env.env._goal)
-        step_env(round_trip)
+        round_trip.reset()
+        for _ in range(10):
+            _, _, done, _ = env.step(env.action_space.sample())
+            if done:
+                break
         round_trip.close()
         env.close()
 

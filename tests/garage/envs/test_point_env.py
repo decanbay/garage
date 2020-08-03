@@ -4,8 +4,6 @@ import numpy as np
 
 from garage.envs.point_env import PointEnv
 
-from tests.helpers import step_env
-
 
 class TestPointEnv:
 
@@ -13,7 +11,8 @@ class TestPointEnv:
         env = PointEnv()
         round_trip = pickle.loads(pickle.dumps(env))
         assert round_trip
-        step_env(round_trip)
+        round_trip.reset()
+        round_trip.step(round_trip.action_space.sample())
         env.close()
         round_trip.close()
 

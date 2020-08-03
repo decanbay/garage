@@ -11,8 +11,9 @@ class TestRL2Env:
         assert wrapped_env.spec.observation_space.shape[0] == (
             env.observation_space.shape[0] + env.action_space.shape[0] + 2)
         obs = env.reset()
-        obs2 = wrapped_env.reset()
-        assert obs.shape[0] + env.action_space.shape[0] + 2 == obs2.shape[0]
+        obs2, _ = wrapped_env.reset()
+        # assert obs.shape[0] + env.action_space.shape[0] + 2 == obs2.shape[0]
         obs, _, _, _ = env.step(env.action_space.sample())
-        obs2, _, _, _ = wrapped_env.step(env.action_space.sample())
+        ts2 = wrapped_env.step(env.action_space.sample())
+        obs2 = ts2.observation
         assert obs.shape[0] + env.action_space.shape[0] + 2 == obs2.shape[0]

@@ -4,13 +4,15 @@ This module contains RL2, RL2Worker and the environment wrapper for RL2.
 """
 import abc
 import collections
+import math
 
 import akro
 from dowel import logger
-import gym
+from gym.wrappers.time_limit import TimeLimit
 import numpy as np
 
-from garage import log_multitask_performance, TrajectoryBatch
+from garage import (Environment, log_multitask_performance, StepType, TimeStep,
+                    TrajectoryBatch)
 from garage.envs import EnvSpec
 from garage.misc import tensor_utils as np_tensor_utils
 from garage.np.algos import MetaRLAlgorithm
@@ -18,7 +20,7 @@ from garage.sampler import DefaultWorker
 from garage.tf.algos._rl2npo import RL2NPO
 
 
-class RL2Env(gym.Wrapper):
+class RL2Env(Environment):
     """Environment wrapper for RL2.
 
     In RL2, observation is concatenated with previous action,
@@ -26,15 +28,171 @@ class RL2Env(gym.Wrapper):
 
     Args:
         env (gym.Env): An env that will be wrapped.
-
+        max_episode_length (int): The maximum steps allowed for an episode.
     """
 
-    def __init__(self, env):
-        super().__init__(env)
-        action_space = akro.from_gym(self.env.action_space)
-        observation_space = self._create_rl2_obs_space()
-        self._spec = EnvSpec(action_space=action_space,
-                             observation_space=observation_space)
+    def __init__(self, env, max_episode_length=math.inf):
+        self.env = env
+        self._action_space = akro.from_gym(self.env.action_space)
+        self._observation_space = self._create_rl2_obs_space()
+        self._spec = EnvSpec(action_space=self._action_space,
+                             observation_space=self._observation_space,
+                             max_episode_length=max_episode_length)
+
+        if isinstance(self.env, TimeLimit):  # env is wrapped by TimeLimit
+            self.env._max_episode_steps = max_episode_length
+            self._render_modes = self.env.unwrapped.metadata['render.modes']
+        elif 'metadata' in env.__dict__:
+            self._render_modes = env.metadata['render.modes']
+        else:
+            self._render_modes = []
+
+        self._last_observation = None
+        self._step_cnt = 0
+        self._max_episode_length = max_episode_length
+
+    @property
+    def action_space(self):
+        """akro.Space: The action space specification."""
+        return self._action_space
+
+    @property
+    def observation_space(self):
+        """akro.Space: The observation space specification."""
+        return self._observation_space
+
+    @property
+    def spec(self):
+        """EnvSpec: The environment specification."""
+        return self._spec
+
+    @property
+    def render_modes(self):
+        """list: A list of string representing the supported render modes."""
+        return self._render_modes
+
+    def reset(self, **kwargs):
+        """Call reset on wrapped env.
+
+        Args:
+            kwargs: Keyword args
+
+        Returns:
+            numpy.ndarray: The first observation. It must conforms to
+            `observation_space`.
+            dict: The episode-level information. Note that this is not part
+            of `env_info` provided in `step()`. It contains information of
+            the entire episode， which could be needed to determine the first
+            action (e.g. in the case of goal-conditioned or MTRL.)
+
+        """
+        del kwargs
+        first_obs = self.env.reset()
+        first_obs = np.concatenate(
+            [first_obs,
+             np.zeros(self.env.action_space.shape), [0], [0]])
+
+        self._step_cnt = 0
+        self._last_observation = first_obs
+        # Populate episode_info if needed.
+        episode_info = {}
+        return first_obs, episode_info
+
+    def step(self, action):
+        """Call step on wrapped env.
+
+        Args:
+            action (np.ndarray): An action provided by the agent.
+
+        Returns:
+            TimeStep: The time step resulting from the action.
+
+        Raises:
+            RuntimeError: if `step()` is called after the environment has been
+                constructed and `reset()` has not been called.
+
+        """
+        if self._last_observation is None:
+            raise RuntimeError('reset() must be called before step()!')
+
+        observation, reward, done, info = self.env.step(action)
+        observation = np.concatenate([observation, action, [reward], [done]])
+        last_obs = self._last_observation
+        # Type conversion
+        if not isinstance(reward, float):
+            reward = float(reward)
+
+        self._last_observation = observation
+        self._step_cnt += 1
+
+        step_type = None
+        if done:
+            step_type = StepType.TERMINAL
+        elif self._step_cnt == 1:
+            step_type = StepType.FIRST
+        else:
+            step_type = StepType.MID
+
+        return TimeStep(
+            env_spec=self.spec,
+            observation=last_obs,
+            action=action,
+            reward=reward,
+            next_observation=observation,
+            env_info=info,
+            agent_info={},  # TODO: can't be populated by env
+            step_type=step_type)
+
+    def render(self, mode):
+        """Renders the environment.
+
+        Args:
+            mode (str): the mode to render with. The string must be present in
+                `self.render_modes`.
+        """
+        if mode not in self.render_modes:
+            raise ValueError('Supported render modes are {}, but '
+                             'got render mode {} instead.'.format(
+                                 self.render_modes, mode))
+        return self.env.render(mode)
+
+    def visualize(self):
+        """Creates a visualization of the environment."""
+        self.env.render(mode='human')
+
+    def close(self):
+        """Close the wrapped env."""
+        self.env.close()
+
+    def sample_tasks(self, num_tasks):
+        """Sample a list of `num_tasks` tasks.
+
+        Needed for environments that implement `sample_tasks` and `set_task`.
+        For example, :py:class:`~HalfCheetahVelEnv`, as implemented in Garage.
+
+        Args:
+            num_tasks (int): Number of tasks to sample.
+
+        Returns:
+            list[dict[str, float]]: A list of "tasks," where each task is a
+                dictionary containing a single key, "velocity", mapping to a
+                value between 0 and 2.
+
+        """
+        return self.env.sample_tasks(num_tasks)
+
+    def set_task(self, task):
+        """Reset with a task.
+
+        Needed for environments that implement `sample_tasks` and `set_task`.
+        For example, :py:class:`~HalfCheetahVelEnv`, as implemented in Garage.
+
+        Args:
+            task (dict[str, float]): A task (a dictionary containing a single
+                key, "velocity", usually between 0 and 2).
+
+        """
+        self.env.set_task(task)
 
     def _create_rl2_obs_space(self):
         """Create observation space for RL2.
@@ -48,48 +206,6 @@ class RL2Env(gym.Wrapper):
         return akro.Box(low=-np.inf,
                         high=np.inf,
                         shape=(obs_flat_dim + action_flat_dim + 1 + 1, ))
-
-    def reset(self, **kwargs):
-        """gym.Env reset function.
-
-        Args:
-            kwargs: Keyword arguments.
-
-        Returns:
-            np.ndarray: augmented observation.
-
-        """
-        del kwargs
-        obs = self.env.reset()
-        return np.concatenate(
-            [obs, np.zeros(self.env.action_space.shape), [0], [0]])
-
-    def step(self, action):
-        """gym.Env step function.
-
-        Args:
-            action (int): action taken.
-
-        Returns:
-            np.ndarray: augmented observation.
-            float: reward.
-            bool: terminal signal.
-            dict: environment info.
-
-        """
-        next_obs, reward, done, info = self.env.step(action)
-        next_obs = np.concatenate([next_obs, action, [reward], [done]])
-        return next_obs, reward, done, info
-
-    @property
-    def spec(self):
-        """Environment specification.
-
-        Returns:
-            EnvSpec: Environment specification.
-
-        """
-        return self._spec
 
 
 class RL2Worker(DefaultWorker):
@@ -130,7 +246,7 @@ class RL2Worker(DefaultWorker):
     def start_rollout(self):
         """Begin a new rollout."""
         self._path_length = 0
-        self._prev_obs = self.env.reset()
+        self._prev_obs, episode_info = self.env.reset()
 
     def rollout(self):
         """Sample a single rollout of the agent in the environment.

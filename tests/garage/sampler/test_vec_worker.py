@@ -53,7 +53,6 @@ def assert_trajs_eq(ground_truth_traj, test_traj):
                         for traj in ground_truth_traj.split()}
     test_set = {(tuple(traj.actions), tuple(traj.observations))
                 for traj in test_traj.split()}
-    print()
     pprint.pprint(ground_truth_set)
     pprint.pprint(test_set)
     assert test_set == ground_truth_set
